@@ -1,0 +1,1137 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cabar Biodiversiti SPM: Dual Battle</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe Hands & Camera Utils CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            user-select: none;
+            overflow: hidden;
+            background-color: #0f172a;
+        }
+        .font-game {
+            font-family: 'Fredoka', cursive;
+        }
+        
+        /* Gift Box Floating Animation */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-10px) rotate(2deg); }
+        }
+        .animate-float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Pulse glow effect for targets */
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(234, 179, 8, 0.4); }
+            50% { box-shadow: 0 0 30px rgba(234, 179, 8, 0.8); }
+        }
+        .glow-target {
+            animation: pulseGlow 2s infinite;
+        }
+
+        /* Dwell Ring SVG animation */
+        .dwell-circle {
+            transition: stroke-dashoffset 0.1s linear;
+        }
+
+        /* Glassmorphism */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .glass-box {
+            background: rgba(30, 41, 59, 0.85);
+            backdrop-filter: blur(8px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* Video mirrored for intuitive hand tracking */
+        #webcam {
+            transform: scaleX(-1);
+        }
+        #output_canvas {
+            transform: scaleX(-1);
+        }
+
+        /* Custom Scrollbar for scoreboard */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.5);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="text-white h-screen w-screen relative select-none">
+
+    <!-- WEBCAM & HAND TRACKING OVERLAY -->
+    <div class="absolute inset-0 z-0 bg-slate-900">
+        <video id="webcam" class="w-full h-full object-cover hidden" autoplay playsinline></video>
+        <canvas id="output_canvas" class="w-full h-full object-cover absolute inset-0 z-0"></canvas>
+        <div id="cam-fallback-bg" class="w-full h-full absolute inset-0 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 z-[-1]"></div>
+    </div>
+
+    <!-- UI LAYER (Z-INDEX 10) -->
+    <div class="relative z-10 w-full h-full flex flex-col justify-between p-4 pointer-events-none">
+
+        <!-- TOP BAR: HUD & GAME INFO -->
+        <header class="w-full flex justify-between items-center pointer-events-auto glass-panel p-3 px-6 rounded-2xl shadow-2xl border border-slate-700/50">
+            <!-- Player 1 Header HUD -->
+            <div class="flex items-center space-x-4">
+                <div class="relative">
+                    <div class="w-12 h-12 rounded-full bg-cyan-500/20 border-2 border-cyan-400 flex items-center justify-center font-bold text-cyan-300 text-xl font-game">
+                        P1
+                    </div>
+                    <span id="p1-hand-status" class="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-red-500 border-2 border-slate-900" title="Kamera mengesan Tangan Kiri"></span>
+                </div>
+                <div>
+                    <div class="text-xs font-bold text-cyan-400 tracking-wider">PEMAIN 1 (KIRI)</div>
+                    <div class="text-2xl font-black font-game text-cyan-300" id="p1-score">0 <span class="text-xs text-slate-400 font-normal">MATA</span></div>
+                </div>
+                <div class="flex space-x-1 text-red-400 text-lg" id="p1-lives">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+            </div>
+
+            <!-- Game Title & Center Timer -->
+            <div class="flex flex-col items-center">
+                <div class="flex items-center space-x-2">
+                    <i class="fa-solid fa-dna text-emerald-400 text-xl animate-bounce"></i>
+                    <h1 class="text-xl md:text-2xl font-black font-game tracking-wider bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+                        BIODIVERSITI BATTLE
+                    </h1>
+                </div>
+                <!-- Round Timer Gauge -->
+                <div class="mt-1 flex items-center space-x-2 bg-slate-800/80 px-4 py-1 rounded-full border border-slate-700">
+                    <i class="fa-solid fa-stopwatch text-amber-400 text-sm"></i>
+                    <span id="timer-text" class="text-lg font-black font-game text-amber-400">20s</span>
+                    <div class="w-24 bg-slate-700 h-2 rounded-full overflow-hidden">
+                        <div id="timer-bar" class="bg-amber-400 h-full w-full transition-all duration-1000"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Player 2 Header HUD -->
+            <div class="flex items-center space-x-4 text-right">
+                <div class="flex space-x-1 text-red-400 text-lg" id="p2-lives">
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                    <i class="fa-solid fa-heart"></i>
+                </div>
+                <div>
+                    <div class="text-xs font-bold text-pink-400 tracking-wider">PEMAIN 2 (KANAN)</div>
+                    <div class="text-2xl font-black font-game text-pink-300" id="p2-score">0 <span class="text-xs text-slate-400 font-normal">MATA</span></div>
+                </div>
+                <div class="relative">
+                    <div class="w-12 h-12 rounded-full bg-pink-500/20 border-2 border-pink-400 flex items-center justify-center font-bold text-pink-300 text-xl font-game">
+                        P2
+                    </div>
+                    <span id="p2-hand-status" class="absolute -bottom-1 -left-1 w-4 h-4 rounded-full bg-red-500 border-2 border-slate-900" title="Kamera mengesan Tangan Kanan"></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- MAIN QUESTION CARD (CENTER SCREEN) -->
+        <main class="w-full max-w-3xl mx-auto my-auto glass-panel p-6 rounded-3xl border-2 border-emerald-500/30 text-center shadow-2xl relative pointer-events-auto">
+            <div class="flex justify-between items-center mb-3">
+                <span id="question-number" class="bg-emerald-500/20 text-emerald-300 text-xs font-bold px-3 py-1 rounded-full border border-emerald-500/40">
+                    SOALAN 1 / 30 (KSSM T5)
+                </span>
+                <span id="question-category" class="bg-indigo-500/20 text-indigo-300 text-xs font-bold px-3 py-1 rounded-full border border-indigo-500/40">
+                    Bab 8: Biodiversiti
+                </span>
+            </div>
+            
+            <!-- Question Text -->
+            <h2 id="question-text" class="text-lg md:text-xl font-bold text-slate-100 leading-relaxed min-h-[4rem] flex items-center justify-center">
+                Memuat turun soalan...
+            </h2>
+
+            <!-- Feedback Alert Banner (Pop up when answered) -->
+            <div id="feedback-banner" class="hidden my-2 py-2 px-4 rounded-xl font-bold text-center text-sm transition-all animate-pulse">
+                <!-- Dynamic feedback -->
+            </div>
+        </main>
+
+        <!-- FOOTER CONTROLS & HELP -->
+        <footer class="w-full flex justify-between items-center pointer-events-auto glass-panel p-2 px-4 rounded-xl text-xs text-slate-300">
+            <div class="flex items-center space-x-3">
+                <button id="btn-toggle-cam" class="hover:text-emerald-400 transition flex items-center gap-1">
+                    <i class="fa-solid fa-video"></i> <span id="cam-status-text">Guna Tetikus / Touch Mode</span>
+                </button>
+                <span>|</span>
+                <span><i class="fa-solid fa-hand-pointer text-amber-400"></i> Tunjuk Telunjuk pada Hadiah 1 Saat</span>
+            </div>
+            <div class="flex items-center space-x-3">
+                <button id="btn-audio" class="hover:text-cyan-400 transition">
+                    <i class="fa-solid fa-volume-high text-base" id="audio-icon"></i>
+                </button>
+                <button id="btn-help" class="hover:text-yellow-400 transition">
+                    <i class="fa-solid fa-circle-question text-base"></i> Panduan
+                </button>
+            </div>
+        </footer>
+
+        <!-- 4 MYSTERY GIFT BOX TARGETS (PLACED AT SCREEN CORNERS) -->
+        
+        <!-- TARGET A (TOP LEFT) -->
+        <div id="target-A" data-option="A" class="target-box absolute top-20 left-4 w-64 md:w-80 glass-box rounded-2xl p-4 cursor-pointer pointer-events-auto transition-transform hover:scale-105 animate-float border-2 border-amber-500/50">
+            <div class="flex items-start space-x-3">
+                <div class="relative flex-shrink-0">
+                    <div class="text-4xl text-amber-400 font-game">🎁</div>
+                    <span class="absolute -top-2 -left-2 bg-amber-500 text-slate-950 font-black rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg">A</span>
+                </div>
+                <div class="flex-grow">
+                    <div class="text-xs text-amber-300 font-bold mb-1">KOTAK MISTERI A</div>
+                    <p id="option-A-text" class="text-xs md:text-sm text-slate-200 font-medium leading-snug">Pilihan A</p>
+                </div>
+            </div>
+            <!-- Dwell gauge indicator for Player 1 / Player 2 -->
+            <div class="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div class="dwell-fill bg-gradient-to-r from-amber-400 to-emerald-400 h-full w-0 transition-all duration-75"></div>
+            </div>
+        </div>
+
+        <!-- TARGET B (TOP RIGHT) -->
+        <div id="target-B" data-option="B" class="target-box absolute top-20 right-4 w-64 md:w-80 glass-box rounded-2xl p-4 cursor-pointer pointer-events-auto transition-transform hover:scale-105 animate-float border-2 border-purple-500/50" style="animation-delay: 0.5s;">
+            <div class="flex items-start space-x-3">
+                <div class="relative flex-shrink-0">
+                    <div class="text-4xl text-purple-400 font-game">🎁</div>
+                    <span class="absolute -top-2 -right-2 bg-purple-500 text-white font-black rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg">B</span>
+                </div>
+                <div class="flex-grow text-right">
+                    <div class="text-xs text-purple-300 font-bold mb-1">KOTAK MISTERI B</div>
+                    <p id="option-B-text" class="text-xs md:text-sm text-slate-200 font-medium leading-snug">Pilihan B</p>
+                </div>
+            </div>
+            <div class="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div class="dwell-fill bg-gradient-to-r from-purple-400 to-pink-400 h-full w-0 transition-all duration-75"></div>
+            </div>
+        </div>
+
+        <!-- TARGET C (BOTTOM LEFT) -->
+        <div id="target-C" data-option="C" class="target-box absolute bottom-16 left-4 w-64 md:w-80 glass-box rounded-2xl p-4 cursor-pointer pointer-events-auto transition-transform hover:scale-105 animate-float border-2 border-cyan-500/50" style="animation-delay: 1s;">
+            <div class="flex items-start space-x-3">
+                <div class="relative flex-shrink-0">
+                    <div class="text-4xl text-cyan-400 font-game">🎁</div>
+                    <span class="absolute -top-2 -left-2 bg-cyan-500 text-slate-950 font-black rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg">C</span>
+                </div>
+                <div class="flex-grow">
+                    <div class="text-xs text-cyan-300 font-bold mb-1">KOTAK MISTERI C</div>
+                    <p id="option-C-text" class="text-xs md:text-sm text-slate-200 font-medium leading-snug">Pilihan C</p>
+                </div>
+            </div>
+            <div class="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div class="dwell-fill bg-gradient-to-r from-cyan-400 to-blue-500 h-full w-0 transition-all duration-75"></div>
+            </div>
+        </div>
+
+        <!-- TARGET D (BOTTOM RIGHT) -->
+        <div id="target-D" data-option="D" class="target-box absolute bottom-16 right-4 w-64 md:w-80 glass-box rounded-2xl p-4 cursor-pointer pointer-events-auto transition-transform hover:scale-105 animate-float border-2 border-emerald-500/50" style="animation-delay: 1.5s;">
+            <div class="flex items-start space-x-3">
+                <div class="relative flex-shrink-0">
+                    <div class="text-4xl text-emerald-400 font-game">🎁</div>
+                    <span class="absolute -top-2 -right-2 bg-emerald-500 text-slate-950 font-black rounded-full w-6 h-6 flex items-center justify-center text-xs shadow-lg">D</span>
+                </div>
+                <div class="flex-grow text-right">
+                    <div class="text-xs text-emerald-300 font-bold mb-1">KOTAK MISTERI D</div>
+                    <p id="option-D-text" class="text-xs md:text-sm text-slate-200 font-medium leading-snug">Pilihan D</p>
+                </div>
+            </div>
+            <div class="mt-2 w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                <div class="dwell-fill bg-gradient-to-r from-emerald-400 to-teal-300 h-full w-0 transition-all duration-75"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- START / LOBBY MODAL -->
+    <div id="start-modal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/90 backdrop-blur-md p-4">
+        <div class="max-w-xl w-full glass-panel rounded-3xl p-6 md:p-8 border-2 border-emerald-500/40 text-center shadow-2xl relative overflow-hidden">
+            <div class="inline-block p-4 bg-emerald-500/10 rounded-full mb-3 text-emerald-400 text-4xl border border-emerald-500/30">
+                <i class="fa-solid fa-leaf"></i>
+            </div>
+            <h1 class="text-3xl md:text-4xl font-black font-game text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 mb-2">
+                CABAR BIODIVERSITI SPM
+            </h1>
+            <p class="text-xs md:text-sm text-slate-300 mb-6">
+                Pertandingan 2-Pemain (Dual Battle Mode) Biologi Tingkatan 5 KSSM.<br>
+                Gunakan Isyarat Jari Telunjuk untuk Membuka Kotak Jawapan!
+            </p>
+
+            <div class="grid grid-cols-2 gap-4 mb-6 text-left text-xs bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
+                <div class="flex items-start space-x-2">
+                    <div class="text-cyan-400 text-lg font-bold">P1</div>
+                    <div>
+                        <div class="font-bold text-cyan-300">Pemain 1 (Tangan Kiri)</div>
+                        <div class="text-slate-400">Pilih jawapan di kotak skrin menggunakan kursor cyan.</div>
+                    </div>
+                </div>
+                <div class="flex items-start space-x-2">
+                    <div class="text-pink-400 text-lg font-bold">P2</div>
+                    <div>
+                        <div class="font-bold text-pink-300">Pemain 2 (Tangan Kanan)</div>
+                        <div class="text-slate-400">Pilih jawapan di kotak skrin menggunakan kursor merah jambu.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex flex-col md:flex-row gap-3">
+                <button id="btn-start-game" class="flex-1 py-3 px-6 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black font-game text-lg rounded-2xl shadow-lg transition-all transform hover:scale-105 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-play"></i> MULA PERTANDINGAN
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME OVER / HIGH SCORE MODAL -->
+    <div id="gameover-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md p-4">
+        <div class="max-w-2xl w-full glass-panel rounded-3xl p-6 md:p-8 border-2 border-amber-500/40 text-center shadow-2xl">
+            <div class="text-5xl text-amber-400 mb-2 font-game animate-bounce">🏆</div>
+            <h2 id="winner-title" class="text-3xl font-black font-game text-amber-300 mb-1">PEMAIN 1 MENANG!</h2>
+            <p class="text-xs text-slate-300 mb-6">Cabaran 30 Soalan Biologi Tingkatan 5 Tamat</p>
+
+            <!-- Final Scores Grid -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-cyan-500/30">
+                    <div class="text-xs font-bold text-cyan-400 mb-1">PEMAIN 1 (KIRI)</div>
+                    <div class="text-3xl font-black font-game text-cyan-300" id="final-p1-score">0</div>
+                    <div class="text-xs text-slate-400 mt-1">Mata Keseluruhan</div>
+                </div>
+                <div class="bg-slate-900/80 p-4 rounded-2xl border border-pink-500/30">
+                    <div class="text-xs font-bold text-pink-400 mb-1">PEMAIN 2 (KANAN)</div>
+                    <div class="text-3xl font-black font-game text-pink-300" id="final-p2-score">0</div>
+                    <div class="text-xs text-slate-400 mt-1">Mata Keseluruhan</div>
+                </div>
+            </div>
+
+            <!-- Review Summary -->
+            <div id="game-summary-text" class="text-xs text-slate-300 bg-slate-900/40 p-3 rounded-xl mb-6 border border-slate-800">
+                Pencapaian cemerlang dalam menguasai topik Biodiversiti, Ekosistem, dan Kelestarian Alam Sekitar!
+            </div>
+
+            <div class="flex gap-3">
+                <button id="btn-restart" class="flex-1 py-3 px-6 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-black font-game text-lg rounded-2xl shadow-lg transition transform hover:scale-105">
+                    <i class="fa-solid fa-rotate-right"></i> MAIN SEMULA
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HELP / INSTRUCTION MODAL -->
+    <div id="help-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+        <div class="max-w-md w-full glass-panel rounded-3xl p-6 border border-slate-700 text-left">
+            <h3 class="text-xl font-bold font-game text-emerald-400 mb-3"><i class="fa-solid fa-lightbulb"></i> Cara Bermain</h3>
+            <ul class="text-xs space-y-2 text-slate-300 list-disc pl-4 mb-4">
+                <li>Gunakan kamera untuk mengesan tangan. Pemain 1 guna tangan kiri, Pemain 2 guna tangan kanan.</li>
+                <li>Tunjukkan jari telunjuk ke arah salah satu daripada 4 Kotak Hadiah Misteri di penjuru skrin.</li>
+                <li>Tahan kursor telunjuk selama **1 saat (Dwell)** pada kotak pilihan untuk membuka hadiah.</li>
+                <li>Mata diberikan berdasarkan jawapan betul dan kelajuan menjawab.</li>
+                <li>Jika kamera tidak disokong atau ditutup, mod Tetikus/Sentuhan boleh digunakan secara automatik.</li>
+            </ul>
+            <button id="btn-close-help" class="w-full py-2 bg-slate-800 hover:bg-slate-700 font-bold rounded-xl text-xs text-slate-200">
+                Faham & Tutup
+            </button>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT GAME LOGIC & MEDIAPIPE TRACKING -->
+    <script>
+        /* ==========================================================================
+           1. 30 KSSM SPM FORM 5 BIOLOGY QUESTIONS DATA (STRICTLY CHAPTER 8 ONLY)
+           ========================================================================== */
+        const QUESTION_BANK = [
+            // 8.1 Pengelasan dan Penamaan Organisma
+            {
+                q: "Harimau Malaya dilindungi di bawah Akta Pemuliharaan Hidupan Liar 2010. Apakah nama saintifik bagi Harimau Malaya?",
+                options: ["Panthera tigris jacksoni", "Panthera Tigris Jacksoni", "Panthera tigris Jacksoni", "PANTHERA TIGRIS JACKSONI"],
+                answer: "A",
+                cat: "8.1 Taksonomi (Buku Teks ms 143)"
+            },
+            {
+                q: "Taksonomi ialah bidang biologi yang melibatkan tiga aspek utama mengikut sistem teratur, iaitu:",
+                options: ["Pengelasan, Pengecaman dan Penamaan", "Pemerhatian, Eksperimen dan Hipotesis", "Pemeliharaan, Pemuliharaan dan Ekosistem", "Genetik, Spesies dan Populasian"],
+                answer: "A",
+                cat: "8.1 Taksonomi (Buku Teks ms 144)"
+            },
+            {
+                q: "Siapakah ahli sains yang dikenali sebagai 'Bapa Taksonomi' kerana mencipta sistem penamaan binomial?",
+                options: ["Robert Whittaker", "Carl Woese", "Carolus Linnaeus", "Dr. Saw Leng Guan"],
+                answer: "C",
+                cat: "8.1 Taksonomi (Buku Teks ms 144)"
+            },
+            {
+                q: "Semua organisma dikelaskan kepada sistem enam alam. Manakah senarai lengkap enam alam tersebut?",
+                options: ["Archaebacteria, Eubacteria, Protista, Fungi, Plantae, Animalia", "Archaea, Bacteria, Eukarya, Monera, Protista, Fungi", "Monera, Protista, Fungi, Plantae, Animalia, Virus", "Prokariot, Eukariot, Unisel, Multisel, Autotrof, Heterotrof"],
+                answer: "A",
+                cat: "8.1 Enam Alam (Buku Teks ms 145)"
+            },
+            {
+                q: "Bakteria Archaebacteria yang dijumpai di kawasan yang sangat masin seperti Laut Mati dikenali sebagai:",
+                options: ["Metanogen", "Halofil", "Termofil", "Cyanobacteria"],
+                answer: "B",
+                cat: "8.1 Archaebacteria (Buku Teks ms 146)"
+            },
+            {
+                q: "Apakah komponen dinding sel bagi Eubacteria yang membezakannya daripada Archaebacteria?",
+                options: ["Kitin", "Selulosa", "Peptidoglikan (murein)", "Phospholipid"],
+                answer: "C",
+                cat: "8.1 Eubacteria (Buku Teks ms 146)"
+            },
+            {
+                q: "Kumpulan Archaebacteria yang merupakan anaerob obligat dan menghasilkan gas metana di kawasan paya ialah:",
+                options: ["Halofil", "Termofil", "Metanogen", "Sulfolobus sp."],
+                answer: "C",
+                cat: "8.1 Archaebacteria (Buku Teks ms 146)"
+            },
+            {
+                q: "Archaebacteria jenis Termofil dijumpai di mata air panas berasid kerana suhu optimum pertumbuhannya ialah:",
+                options: ["10°C hingga 30°C", "37°C hingga 45°C", "60°C hingga 80°C", "90°C hingga 120°C"],
+                answer: "C",
+                cat: "8.1 Archaebacteria (Buku Teks ms 146)"
+            },
+            {
+                q: "Protista dibahagikan kepada tiga kumpulan utama berdasarkan ciri-ciri serupa, iaitu:",
+                options: ["Protozoa, Alga dan Kulapuk Lendir", "Monera, Fungi dan Alga", "Prokariot, Eukariot dan Virus", "Autotrof, Heterotrof dan Saprofit"],
+                answer: "A",
+                cat: "8.1 Protista (Buku Teks ms 147)"
+            },
+            {
+                q: "Organisma dalam Alam Fungimempunyai dinding sel yang dibina daripada:",
+                options: ["Peptidoglikan", "Selulosa", "Kitin", "Lignin"],
+                answer: "C",
+                cat: "8.1 Fungi (Buku Teks ms 147)"
+            },
+            {
+                q: "Apakah urutan hierarki taksonomi Linnaeus daripada peringkat tertinggi (paling umum) ke terendah?",
+                options: ["Domain -> Alam -> Filum -> Kelas -> Order -> Famili -> Genus -> Spesies", "Spesies -> Genus -> Famili -> Order -> Kelas -> Filum -> Alam -> Domain", "Domain -> Filum -> Alam -> Order -> Kelas -> Famili -> Genus -> Spesies", "Alam -> Domain -> Filum -> Kelas -> Order -> Genus -> Famili -> Spesies"],
+                answer: "A",
+                cat: "8.1 Hierarki Taksonomi (Buku Teks ms 148)"
+            },
+            {
+                q: "Peringkat taksonomi manakah di mana organisma dalam kumpulan yang sama dapat saling membiak dan menghasilkan keturunan subur?",
+                options: ["Genus", "Famili", "Spesies", "Order"],
+                answer: "C",
+                cat: "8.1 Hierarki Taksonomi (Buku Teks ms 148)"
+            },
+            {
+                q: "Mengikut sistem tatanama binomial Linnaeus, perkataan pertama ialah nama ______ dan perkataan kedua ialah nama ______.",
+                options: ["Spesies ; Genus", "Genus ; Spesies", "Famili ; Genus", "Order ; Spesies"],
+                answer: "B",
+                cat: "8.1 Tatanama Binomial (Buku Teks ms 149)"
+            },
+            {
+                q: "Bagaimanakah cara menulis nama saintifik organisma yang betul sekiranya DITULIS TANGAN?",
+                options: ["Dicetak secara condong (italik)", "Kedua-dua nama digaris secara berasingan", "Kedua-dua nama digaris secara bersambung", "Ditulis menggunakan huruf besar sepenuhnya"],
+                answer: "B",
+                cat: "8.1 Tatanama Binomial (Buku Teks ms 149)"
+            },
+            {
+                q: "Kekunci dikotomi dibina dengan menggunakan siri kuplet. Apakah yang dimaksudkan dengan kuplet?",
+                options: ["Dua pernyataan berlawanan tentang ciri organisma", "Tiga pilihan nama saintifik yang serupa", "Satu rajah pokok filogeni bercabang", "Empat kumpulan alam pengelasan"],
+                answer: "A",
+                cat: "8.1 Kekunci Dikotomi (Buku Teks ms 150)"
+            },
+
+            // 8.2 Biodiversiti
+            {
+                q: "Konsep biodiversiti merangkumi tiga jenis diversiti utama iaitu:",
+                options: ["Diversiti Genetik, Diversiti Spesies, Diversiti Ekosistem", "Diversiti Sel, Diversiti Organ, Diversiti Sistem", "Diversiti Habitat, Diversiti Komuniti, Diversiti Populasi", "Diversiti Abiotik, Diversiti Biosis, Diversiti Fizikal"],
+                answer: "A",
+                cat: "8.2 Konsep Biodiversiti (Buku Teks ms 152)"
+            },
+            {
+                q: "Pengelasan filogeni dibuat berdasarkan struktur homolog. Apakah maksud struktur homolog?",
+                options: ["Struktur fungsi serupa tetapi asal-usul evolusi berbeza", "Struktur anatomi serupa daripada leluhur sama tetapi fungsi berlainan", "Struktur sel yang tidak mempunyai membran nukleus", "Struktur luaran yang berubah mengikut habitat"],
+                answer: "B",
+                cat: "8.2 Pokok Filogeni (Buku Teks ms 153)"
+            },
+            {
+                q: "Tumbuhan darat dikatakan berevolusi daripada alga hijau. Urutan evolusi tumbuhan darat yang betul ialah:",
+                options: ["Lumut -> Paku Pakis -> Gimnosperma -> Angiosperma", "Angiosperma -> Gimnosperma -> Paku Pakis -> Lumut", "Paku Pakis -> Lumut -> Angiosperma -> Gimnosperma", "Gimnosperma -> Angiosperma -> Lumut -> Paku Pakis"],
+                answer: "A",
+                cat: "8.2 Pokok Filogeni (Buku Teks ms 154)"
+            },
+            {
+                q: "Pusat Pemulihan Orang Utan Sepilok di Sabah merupakan contoh langkah pemuliharaan:",
+                options: ["Ex-situ", "In-situ", "In-vitro", "Ex-vitro"],
+                answer: "B",
+                cat: "8.2 Pemuliharaan (Buku Teks ms 154)"
+            },
+            {
+                q: "Apakah perbezaan antara pemuliharaan in-situ dan pemuliharaan ex-situ?",
+                options: ["In-situ mengekalkan spesies di habitat asal; Ex-situ memelihara di luar habitat asal", "In-situ untuk tumbuhan sahaja; Ex-situ untuk haiwan sahaja", "In-situ dijalankan di zoo; Ex-situ dijalankan di taman negara", "In-situ menggunakan makmal; Ex-situ menggunakan hutan simpan"],
+                answer: "A",
+                cat: "8.2 Pemuliharaan (Buku Teks ms 154)"
+            },
+
+            // 8.3 Mikroorganisma dan Virus
+            {
+                q: "Bakteria wujud dalam pelbagai bentuk. Apakah istilah bagi bakteria berbentuk koma?",
+                options: ["Kokus", "Basilus", "Vibrio", "Spirilum"],
+                answer: "C",
+                cat: "8.3 Mikroorganisma (Buku Teks ms 155-156)"
+            },
+            {
+                q: "Amoeba sp. bergerak menggunakan pseudopodium, manakala Paramecium sp. bergerak menggunakan:",
+                options: ["Flagelum", "Silia", "Hifa", "Pseudopodium"],
+                answer: "B",
+                cat: "8.3 Protozoa (Buku Teks ms 156)"
+            },
+            {
+                q: "Mengapakah virus BUKAN dikelaskan dalam mana-mana daripada enam alam organisma?",
+                options: ["Kerana virus bersaiz terlalu besar untuk mikroskop", "Kerana virus bukan organisma bersel dan tidak berproses hidup di luar perumah", "Kerana virus mempunyai dinding sel peptidoglikan", "Kerana virus boleh menjalankan fotosintesis"],
+                answer: "B",
+                cat: "8.3 Virus (Buku Teks ms 158)"
+            },
+            {
+                q: "Bakteria pengikat nitrogen yang hidup secara bersimbiosis dalam nodul akar tumbuhan legum ialah:",
+                options: ["Nitrosomonas sp.", "Nitrobacter sp.", "Rhizobium sp.", "Azotobacter sp."],
+                answer: "C",
+                cat: "8.3 Kitar Nitrogen (Buku Teks ms 159)"
+            },
+            {
+                q: "Dalam kitar nitrogen, bakteria Nitrosomonas sp. menukarkan ion ammonium ($NH_4^+$) kepada:",
+                options: ["Gas nitrogen ($N_2$)", "Ion nitrit ($NO_2^-$)", "Ion nitrat ($NO_3^-$)", "Asid amino"],
+                answer: "B",
+                cat: "8.3 Kitar Nitrogen (Buku Teks ms 159)"
+            },
+            {
+                q: "Bakteria manakah yang bertanggungjawab menukarkan ion nitrit ($NO_2^-$) kepada ion nitrat ($NO_3^-$) dalam tanah?",
+                options: ["Nitrobacter sp.", "Nitrosomonas sp.", "Rhizobium sp.", "Azotobacter sp."],
+                answer: "A",
+                cat: "8.3 Kitar Nitrogen (Buku Teks ms 159)"
+            },
+            {
+                q: "Apakah peranan fitoplankton (seperti alga hijau dan sianobakteria) dalam ekosistem akuatik?",
+                options: ["Pengurai utama", "Pengeluar utama", "Pengguna sekunder", "Parasit obligat"],
+                answer: "B",
+                cat: "8.3 Peranan Mikroorganisma (Buku Teks ms 160)"
+            },
+            {
+                q: "Protozoa Trichonympha sp. yang hidup di dalam salur alimentari anai-anai merupakan contoh:",
+                options: ["Ektosimbion", "Endosimbion", "Ektoparasit", "Patogen"],
+                answer: "B",
+                cat: "8.3 Simbion (Buku Teks ms 161)"
+            },
+            {
+                q: "Protozoa Plasmodium sp. yang menyebabkan penyakit malaria dipindahkan kepada manusia melalui vektor:",
+                options: ["Nyamuk Aedes aegypti", "Nyamuk tiruk betina Anopheles sp.", "Lalat Musca domestica", "Lipas Periplaneta americana"],
+                answer: "B",
+                cat: "8.3 Patogen & Vektor (Buku Teks ms 161-163)"
+            },
+            {
+                q: "Apakah inovasi di Malaysia untuk merencatkan pembiakan virus denggi dalam nyamuk Aedes aegypti?",
+                options: ["Penyemburan racun kimia DDT", "Suntikan bakteria Wolbachia ke dalam telur nyamuk", "Pelepasan ikan gupi di semua perairan", "Penggunaan sinaran gamma pada air bertakung"],
+                answer: "B",
+                cat: "8.3 Inovasi Biologi (Buku Teks ms 162)"
+            }
+        ];
+
+        /* ==========================================================================
+           2. AUDIO SYNTHESIZER (WEB AUDIO API - NO EXTERNAL ASSETS NEEDED)
+           ========================================================================== */
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+                this.muted = false;
+            }
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+            playTone(freq, type, duration) {
+                if (this.muted) return;
+                this.init();
+                try {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.value = freq;
+                    gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {}
+            }
+            playCorrect() {
+                if (this.muted) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(523.25, now); // C5
+                osc.frequency.setValueAtTime(659.25, now + 0.1); // E5
+                osc.frequency.setValueAtTime(783.99, now + 0.2); // G5
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.4);
+            }
+            playWrong() {
+                if (this.muted) return;
+                this.init();
+                const now = this.ctx.currentTime;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(220, now);
+                osc.frequency.setValueAtTime(180, now + 0.15);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            }
+            playDwellBeep(progress) {
+                if (this.muted) return;
+                this.playTone(300 + (progress * 400), 'sine', 0.05);
+            }
+            playWinFanfare() {
+                if (this.muted) return;
+                [400, 500, 600, 800].forEach((freq, idx) => {
+                    setTimeout(() => this.playTone(freq, 'triangle', 0.3), idx * 120);
+                });
+            }
+        }
+        const sfx = new SoundFX();
+
+        /* ==========================================================================
+           3. GAME STATE MANAGEMENT
+           ========================================================================== */
+        const gameState = {
+            active: false,
+            currentQuestionIdx: 0,
+            questionList: [],
+            timeLeft: 20,
+            timerInterval: null,
+            players: {
+                p1: { score: 0, lives: 3, cursor: { x: -100, y: -100 }, target: null, dwellStart: 0 },
+                p2: { score: 0, lives: 3, cursor: { x: -100, y: -100 }, target: null, dwellStart: 0 }
+            },
+            webcamActive: false,
+            dwellThreshold: 1000 // 1 second dwell time required to select answer
+        };
+
+        // DOM Elements
+        const elements = {
+            p1Score: document.getElementById('p1-score'),
+            p2Score: document.getElementById('p2-score'),
+            p1Lives: document.getElementById('p1-lives'),
+            p2Lives: document.getElementById('p2-lives'),
+            p1HandStatus: document.getElementById('p1-hand-status'),
+            p2HandStatus: document.getElementById('p2-hand-status'),
+            qNumber: document.getElementById('question-number'),
+            qCategory: document.getElementById('question-category'),
+            qText: document.getElementById('question-text'),
+            timerText: document.getElementById('timer-text'),
+            timerBar: document.getElementById('timer-bar'),
+            feedbackBanner: document.getElementById('feedback-banner'),
+            targets: {
+                A: document.getElementById('target-A'),
+                B: document.getElementById('target-B'),
+                C: document.getElementById('target-C'),
+                D: document.getElementById('target-D')
+            },
+            targetTexts: {
+                A: document.getElementById('option-A-text'),
+                B: document.getElementById('option-B-text'),
+                C: document.getElementById('option-C-text'),
+                D: document.getElementById('option-D-text')
+            },
+            startModal: document.getElementById('start-modal'),
+            gameoverModal: document.getElementById('gameover-modal'),
+            helpModal: document.getElementById('help-modal'),
+            video: document.getElementById('webcam'),
+            canvas: document.getElementById('output_canvas'),
+            ctx: document.getElementById('output_canvas').getContext('2d')
+        };
+
+        /* ==========================================================================
+           4. GAME ENGINE LOGIC
+           ========================================================================== */
+        function initGame() {
+            // Shuffle Question Bank
+            gameState.questionList = [...QUESTION_BANK].sort(() => Math.random() - 0.5);
+            gameState.currentQuestionIdx = 0;
+            gameState.players.p1.score = 0;
+            gameState.players.p2.score = 0;
+            gameState.players.p1.lives = 3;
+            gameState.players.p2.lives = 3;
+            gameState.active = true;
+
+            elements.startModal.classList.add('hidden');
+            elements.gameoverModal.classList.add('hidden');
+            
+            updateLivesUI();
+            loadQuestion();
+        }
+
+        function loadQuestion() {
+            if (gameState.currentQuestionIdx >= gameState.questionList.length) {
+                endGame("Cabaran 30 Soalan Selesai!");
+                return;
+            }
+
+            if (gameState.players.p1.lives <= 0 && gameState.players.p2.lives <= 0) {
+                endGame("Kedua-dua Pemain Kehabisan Nyawa!");
+                return;
+            }
+
+            const currentQ = gameState.questionList[gameState.currentQuestionIdx];
+            elements.qNumber.textContent = `SOALAN ${gameState.currentQuestionIdx + 1} / 30 (KSSM T5)`;
+            elements.qCategory.textContent = currentQ.cat;
+            elements.qText.textContent = currentQ.q;
+
+            // Render options
+            elements.targetTexts.A.textContent = currentQ.options[0];
+            elements.targetTexts.B.textContent = currentQ.options[1];
+            elements.targetTexts.C.textContent = currentQ.options[2];
+            elements.targetTexts.D.textContent = currentQ.options[3];
+
+            // Reset target UI feedback
+            Object.values(elements.targets).forEach(el => {
+                el.classList.remove('ring-4', 'ring-emerald-400', 'ring-red-500', 'bg-emerald-950/80', 'bg-red-950/80');
+                const dwellFill = el.querySelector('.dwell-fill');
+                if (dwellFill) dwellFill.style.width = '0%';
+            });
+
+            elements.feedbackBanner.classList.add('hidden');
+
+            // Reset dwell tracking
+            gameState.players.p1.dwellStart = 0;
+            gameState.players.p2.dwellStart = 0;
+            gameState.players.p1.target = null;
+            gameState.players.p2.target = null;
+
+            // Start Timer
+            startTimer();
+        }
+
+        function startTimer() {
+            clearInterval(gameState.timerInterval);
+            gameState.timeLeft = 20;
+            updateTimerUI();
+
+            gameState.timerInterval = setInterval(() => {
+                gameState.timeLeft--;
+                updateTimerUI();
+
+                if (gameState.timeLeft <= 0) {
+                    clearInterval(gameState.timerInterval);
+                    handleTimeOut();
+                }
+            }, 1000);
+        }
+
+        function updateTimerUI() {
+            elements.timerText.textContent = `${gameState.timeLeft}s`;
+            const pct = (gameState.timeLeft / 20) * 100;
+            elements.timerBar.style.width = `${pct}%`;
+
+            if (gameState.timeLeft <= 5) {
+                elements.timerBar.className = "bg-red-500 h-full transition-all duration-1000";
+            } else {
+                elements.timerBar.className = "bg-amber-400 h-full transition-all duration-1000";
+            }
+        }
+
+        function handleTimeOut() {
+            sfx.playWrong();
+            showFeedback("Masa Tamat! Tiada jawapan dipilih.", "bg-amber-500/20 border border-amber-500 text-amber-300");
+            
+            // Deduct lives for active players
+            if (gameState.players.p1.lives > 0) gameState.players.p1.lives--;
+            if (gameState.players.p2.lives > 0) gameState.players.p2.lives--;
+            updateLivesUI();
+
+            setTimeout(() => {
+                nextQuestion();
+            }, 2000);
+        }
+
+        function handleAnswer(playerKey, selectedOption) {
+            clearInterval(gameState.timerInterval);
+            const currentQ = gameState.questionList[gameState.currentQuestionIdx];
+            const isCorrect = selectedOption === currentQ.answer;
+            const player = gameState.players[playerKey];
+            const pName = playerKey === 'p1' ? 'Pemain 1' : 'Pemain 2';
+
+            const targetEl = elements.targets[selectedOption];
+
+            if (isCorrect) {
+                sfx.playCorrect();
+                // Score formula: Base 100 pts + bonus for speed
+                const speedBonus = gameState.timeLeft * 10;
+                const earned = 100 + speedBonus;
+                player.score += earned;
+
+                // Visual Feedback
+                targetEl.classList.add('ring-4', 'ring-emerald-400', 'bg-emerald-950/80');
+                showFeedback(`Tahniah ${pName}! Jawapan ${selectedOption} BETUL! (+${earned} Mata)`, "bg-emerald-500/20 border border-emerald-500 text-emerald-300");
+
+                // Confetti FX
+                try {
+                    confetti({
+                        particleCount: 60,
+                        spread: 70,
+                        origin: { y: 0.6 }
+                    });
+                } catch(e){}
+
+            } else {
+                sfx.playWrong();
+                player.lives--;
+                updateLivesUI();
+
+                targetEl.classList.add('ring-4', 'ring-red-500', 'bg-red-950/80');
+                const correctEl = elements.targets[currentQ.answer];
+                correctEl.classList.add('ring-4', 'ring-emerald-400');
+
+                showFeedback(`Salah ${pName}! Jawapan tepat ialah ${currentQ.answer}.`, "bg-red-500/20 border border-red-500 text-red-300");
+            }
+
+            // Update Header Score
+            elements.p1Score.innerHTML = `${gameState.players.p1.score} <span class="text-xs text-slate-400 font-normal">MATA</span>`;
+            elements.p2Score.innerHTML = `${gameState.players.p2.score} <span class="text-xs text-slate-400 font-normal">MATA</span>`;
+
+            setTimeout(() => {
+                nextQuestion();
+            }, 2500);
+        }
+
+        function nextQuestion() {
+            gameState.currentQuestionIdx++;
+            loadQuestion();
+        }
+
+        function showFeedback(msg, styleClass) {
+            elements.feedbackBanner.textContent = msg;
+            elements.feedbackBanner.className = `my-2 py-2 px-4 rounded-xl font-bold text-center text-sm transition-all animate-pulse ${styleClass}`;
+            elements.feedbackBanner.classList.remove('hidden');
+        }
+
+        function updateLivesUI() {
+            const renderHearts = (lives) => {
+                let html = '';
+                for (let i = 0; i < 3; i++) {
+                    if (i < lives) {
+                        html += '<i class="fa-solid fa-heart text-red-500"></i>';
+                    } else {
+                        html += '<i class="fa-regular fa-heart text-slate-600"></i>';
+                    }
+                }
+                return html;
+            };
+
+            elements.p1Lives.innerHTML = renderHearts(gameState.players.p1.lives);
+            elements.p2Lives.innerHTML = renderHearts(gameState.players.p2.lives);
+        }
+
+        function endGame(reason) {
+            gameState.active = false;
+            clearInterval(gameState.timerInterval);
+            sfx.playWinFanfare();
+
+            const p1 = gameState.players.p1.score;
+            const p2 = gameState.players.p2.score;
+
+            let winnerText = "";
+            if (p1 > p2) {
+                winnerText = "PEMAIN 1 (KIRI) MENANG!";
+            } else if (p2 > p1) {
+                winnerText = "PEMAIN 2 (KANAN) MENANG!";
+            } else {
+                winnerText = "KEPUTUSAN SERI!";
+            }
+
+            document.getElementById('winner-title').textContent = winnerText;
+            document.getElementById('final-p1-score').textContent = p1;
+            document.getElementById('final-p2-score').textContent = p2;
+            document.getElementById('game-summary-text').textContent = `${reason} Tahniah kepada kedua-dua pemain atas usaha menguasai tajuk Biologi SPM!`;
+
+            elements.gameoverModal.classList.remove('hidden');
+        }
+
+        /* ==========================================================================
+           5. MEDIAPIPE HANDS TRACKING & DWELL SELECTION
+           ========================================================================== */
+        function setupMediaPipe() {
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
+
+            hands.onResults(onHandResults);
+
+            const camera = new Camera(elements.video, {
+                onFrame: async () => {
+                    if (gameState.webcamActive) {
+                        await hands.send({ image: elements.video });
+                    }
+                },
+                width: 1280,
+                height: 720
+            });
+
+            // Start camera attempt
+            camera.start()
+                .then(() => {
+                    gameState.webcamActive = true;
+                    document.getElementById('cam-status-text').textContent = "Mod Kamera Aktif";
+                })
+                .catch((err) => {
+                    console.log("Kamera tidak diakses, mod tetikus digunakan:", err);
+                    gameState.webcamActive = false;
+                    document.getElementById('cam-status-text').textContent = "Mod Tetikus / Sentuhan";
+                });
+        }
+
+        function onHandResults(results) {
+            // Resize canvas to match window
+            elements.canvas.width = window.innerWidth;
+            elements.canvas.height = window.innerHeight;
+
+            elements.ctx.save();
+            elements.ctx.clearRect(0, 0, elements.canvas.width, elements.canvas.height);
+
+            // Draw video frame on canvas if active
+            if (results.image && gameState.webcamActive) {
+                elements.ctx.drawImage(results.image, 0, 0, elements.canvas.width, elements.canvas.height);
+            }
+
+            let p1Found = false;
+            let p2Found = false;
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    const handedness = results.multiHandedness[i].label; // 'Left' or 'Right'
+
+                    // MediaPipe camera is mirrored:
+                    // 'Right' hand in video mirrored = Left side of screen (Player 1)
+                    // 'Left' hand in video mirrored = Right side of screen (Player 2)
+                    
+                    // Landmark 8 is INDEX_FINGER_TIP
+                    const indexTip = landmarks[8];
+                    // Mirror X coordinate for screen projection
+                    const x = (1 - indexTip.x) * elements.canvas.width;
+                    const y = indexTip.y * elements.canvas.height;
+
+                    if (handedness === 'Right' || results.multiHandLandmarks.length === 1 && x < elements.canvas.width / 2) {
+                        // Player 1
+                        p1Found = true;
+                        gameState.players.p1.cursor = { x, y };
+                        drawPlayerCursor(x, y, '#22d3ee', 'P1 Telunjuk');
+                    } else {
+                        // Player 2
+                        p2Found = true;
+                        gameState.players.p2.cursor = { x, y };
+                        drawPlayerCursor(x, y, '#f472b6', 'P2 Telunjuk');
+                    }
+                }
+            }
+
+            // Update Status Indicators
+            elements.p1HandStatus.className = `absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-slate-900 ${p1Found ? 'bg-emerald-500' : 'bg-red-500'}`;
+            elements.p2HandStatus.className = `absolute -bottom-1 -left-1 w-4 h-4 rounded-full border-2 border-slate-900 ${p2Found ? 'bg-emerald-500' : 'bg-red-500'}`;
+
+            // Process dwell selection if game is active
+            if (gameState.active) {
+                if (p1Found && gameState.players.p1.lives > 0) processDwell('p1');
+                if (p2Found && gameState.players.p2.lives > 0) processDwell('p2');
+            }
+
+            elements.ctx.restore();
+        }
+
+        function drawPlayerCursor(x, y, color, label) {
+            elements.ctx.beginPath();
+            elements.ctx.arc(x, y, 16, 0, 2 * Math.PI);
+            elements.ctx.fillStyle = color;
+            elements.ctx.globalAlpha = 0.4;
+            elements.ctx.fill();
+            elements.ctx.lineWidth = 3;
+            elements.ctx.strokeStyle = '#ffffff';
+            elements.ctx.stroke();
+
+            // Inner Dot
+            elements.ctx.beginPath();
+            elements.ctx.arc(x, y, 6, 0, 2 * Math.PI);
+            elements.ctx.fillStyle = '#ffffff';
+            elements.ctx.globalAlpha = 1.0;
+            elements.ctx.fill();
+
+            // Label
+            elements.ctx.font = 'bold 12px Fredoka, sans-serif';
+            elements.ctx.fillStyle = color;
+            elements.ctx.fillText(label, x + 20, y + 5);
+        }
+
+        /* Dwell Detection Engine */
+        function processDwell(playerKey) {
+            const player = gameState.players[playerKey];
+            const cursorPos = player.cursor;
+
+            let hoveredOption = null;
+
+            // Check collision with 4 Target Boxes
+            for (const [optKey, targetEl] of Object.entries(elements.targets)) {
+                const rect = targetEl.getBoundingClientRect();
+                if (
+                    cursorPos.x >= rect.left &&
+                    cursorPos.x <= rect.right &&
+                    cursorPos.y >= rect.top &&
+                    cursorPos.y <= rect.bottom
+                ) {
+                    hoveredOption = optKey;
+                    break;
+                }
+            }
+
+            const now = Date.now();
+
+            if (hoveredOption) {
+                if (player.target === hoveredOption) {
+                    // Continuing dwell
+                    const elapsed = now - player.dwellStart;
+                    const progress = Math.min(elapsed / gameState.dwellThreshold, 1.0);
+
+                    // Update UI dwell gauge for target
+                    const dwellFill = elements.targets[hoveredOption].querySelector('.dwell-fill');
+                    if (dwellFill) {
+                        dwellFill.style.width = `${progress * 100}%`;
+                    }
+
+                    if (elapsed >= gameState.dwellThreshold) {
+                        // Dwell Completed! Trigger Answer
+                        player.target = null;
+                        player.dwellStart = 0;
+                        handleAnswer(playerKey, hoveredOption);
+                    }
+                } else {
+                    // New target hovered
+                    player.target = hoveredOption;
+                    player.dwellStart = now;
+                }
+            } else {
+                // Reset dwell if cursor left targets
+                if (player.target) {
+                    const dwellFill = elements.targets[player.target].querySelector('.dwell-fill');
+                    if (dwellFill) dwellFill.style.width = '0%';
+                }
+                player.target = null;
+                player.dwellStart = 0;
+            }
+        }
+
+        /* ==========================================================================
+           6. FALLBACK MOUSE / TOUCH CONTROLS
+           ========================================================================== */
+        function setupFallbackInput() {
+            // Allow direct click on targets as fallback
+            Object.entries(elements.targets).forEach(([optKey, targetEl]) => {
+                targetEl.addEventListener('click', () => {
+                    if (!gameState.active) return;
+                    // Default click attributes to Player 1 if webcam not used
+                    sfx.init();
+                    handleAnswer('p1', optKey);
+                });
+            });
+
+            // Track mouse as P1 cursor when webcam is off
+            window.addEventListener('mousemove', (e) => {
+                if (!gameState.webcamActive && gameState.active) {
+                    gameState.players.p1.cursor = { x: e.clientX, y: e.clientY };
+                    processDwell('p1');
+                }
+            });
+        }
+
+        /* ==========================================================================
+           7. EVENT LISTENERS & INITIALIZATION
+           ========================================================================== */
+        document.getElementById('btn-start-game').addEventListener('click', () => {
+            sfx.init();
+            initGame();
+        });
+
+        document.getElementById('btn-restart').addEventListener('click', () => {
+            sfx.init();
+            initGame();
+        });
+
+        document.getElementById('btn-help').addEventListener('click', () => {
+            elements.helpModal.classList.remove('hidden');
+        });
+
+        document.getElementById('btn-close-help').addEventListener('click', () => {
+            elements.helpModal.classList.add('hidden');
+        });
+
+        document.getElementById('btn-audio').addEventListener('click', () => {
+            sfx.muted = !sfx.muted;
+            const icon = document.getElementById('audio-icon');
+            if (sfx.muted) {
+                icon.className = "fa-solid fa-volume-xmark text-red-400";
+            } else {
+                icon.className = "fa-solid fa-volume-high text-cyan-400";
+            }
+        });
+
+        document.getElementById('btn-toggle-cam').addEventListener('click', () => {
+            gameState.webcamActive = !gameState.webcamActive;
+            if (gameState.webcamActive) {
+                elements.video.classList.remove('hidden');
+                document.getElementById('cam-status-text').textContent = "Mod Kamera Aktif";
+            } else {
+                elements.video.classList.add('hidden');
+                document.getElementById('cam-status-text').textContent = "Mod Tetikus / Sentuhan";
+            }
+        });
+
+        // Initialize App on Window Load
+        window.addEventListener('load', () => {
+            setupFallbackInput();
+            setupMediaPipe();
+        });
+    </script>
+</body>
+</html>
